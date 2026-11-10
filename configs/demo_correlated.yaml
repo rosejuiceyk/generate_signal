@@ -33,13 +33,13 @@ source_model:
     status: synthetic_demo
     notes: Moderate detection efficiency for demonstration SNRs.
   nu_bar:
-    value: 2.5
+    value: 2.414097
     status: synthetic_demo
-    notes: Demonstration multiplicity mean.
+    notes: Zucker & Holden U-235 thermal-fission mean used as a pure-simulation input; not a transport calculation or detector calibration.
   nu_pmf:
-    value: [0.0, 0.0, 0.5, 0.5]
+    value: [0.031722, 0.171707, 0.336199, 0.303969, 0.126946, 0.026648, 0.002602, 0.000207]
     status: synthetic_demo
-    notes: Arbitrary demonstration PMF with mean 2.5.
+    notes: "U-235 thermal-fission Zucker & Holden distribution (bibliographic source: Holden and Zucker, 1988)."
   source_rate_cps:
     value: 2000.0
     status: synthetic_demo

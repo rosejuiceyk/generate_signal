@@ -1,0 +1,30 @@
+# Event-level correlated-neutron precision pilot, physically coupled branch.
+# Selected from outputs/event_precision_pilot/event_precision_pilot.json:
+# k_high had the lowest mean absolute relative error across Rossi/Feynman/PSD.
+base_configuration: configs/demo_correlated.yaml
+parameter_status: synthetic_demo
+baseline_selection:
+  scenario: k_high
+  alpha_per_s: 1000.0
+  true_rate_cps: 3000.0
+  k_eff: 0.85
+  detection_efficiency: 0.30
+  selection_metric: mean_of_three_method_mean_absolute_relative_errors
+prompt_generation_time_s: 0.00015
+shared_controls:
+  true_rate_cps: 3000.0
+  detection_efficiency: 0.30
+  seeds: [101, 203, 307, 401]
+scenarios:
+  - k_eff: 0.30
+    alpha_per_s: derived
+    expected_events: 100000
+  - k_eff: 0.50
+    alpha_per_s: derived
+    expected_events: 60000
+  - k_eff: 0.70
+    alpha_per_s: derived
+    expected_events: 30000
+  - k_eff: 0.85
+    alpha_per_s: derived
+    expected_events: 30000

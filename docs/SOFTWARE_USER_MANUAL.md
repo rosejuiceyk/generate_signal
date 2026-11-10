@@ -37,6 +37,8 @@ he3sim simulate-events --source-model correlated -c configs/demo_minimal.yaml -o
 he3sim validate-correlated -c configs/demo_minimal.yaml -o outputs/phaseA_report
 he3sim analyze-noise -c configs/demo_minimal.yaml -o outputs/phaseB_noise
 he3sim validate-alpha-recovery -c configs/demo_minimal.yaml -o outputs/phaseB_recovery
+he3sim validate-event-precision-pilot -c configs/demo_correlated.yaml -o outputs/event_precision_pilot
+he3sim validate-waveform-alpha -c configs/demo_correlated.yaml -o outputs/waveform_alpha_validation
 he3sim analyze-continuous-noise -c configs/demo_correlated.yaml -o outputs/phaseC_continuous
 he3sim scan-usability-frontier -c configs/demo_correlated.yaml -o outputs/phaseC_frontier
 he3sim simulate-waveform -c configs/demo_minimal.yaml -o outputs/waveform.h5
@@ -49,6 +51,21 @@ he3sim qualify-acquisition --input <DAQ目录> --profile configs/acquisition_pro
 波形和数据集 HDF5 保存真值事件、分块索引、裁剪前/后的模拟电压、ADC 和饱和标记。Phase 3
 数据集另外保存触发、死时间、事件关联和固定窗口。所有派生产物写入 `outputs/`，原始采集目录保持只读。
 
+`validate-waveform-alpha` 是论文方法验证用的合成闭环：同一相关中子真值依次通过 G0 事件时间参考、
+G1 理想波形、G2 含噪波形和 G3 含噪波形加 `4 us` 非延长型死时间，再以 Rossi-α、Feynman-α、PSD
+反演 α。G0 与 G1–G3 严格共用 seed、真值事件、观察时长、α 真值和估计器设置；JSON 记录逐种子配对差异。
+波形触发可选 `level` 或 `differential`；投稿前冻结评估使用平滑延迟差分触发
+(`DifferentialThreshold`：`4 mV`、延迟 `0.5 us`、平滑 `0.2 us`)。
+
+`outputs/manuscript_v6_differential_local/` 保存的五种子冻结结果是当前投稿前口径：60 项估计的绝对相对误差
+均值为 `3.219%`，中位数为 `2.567%`，`48/60` 项不超过 `5%`。原先更严格的“每一种子、每一工况、每一估计器
+均不超过 5%”门槛**未达成**（仅一个种子满足），必须作为限制保留，不能转写为自动通过或真实设备性能结论。
+这些结果仅支持参数化纯模拟链路的描述性软件验证。
+
+命令可用 `--true-rate-cps`、`--duration-s`、`--alpha-s-inv` 和 `--seed` 统一覆盖全部 G0–G3 工况；
+冻结评估使用 `3000 cps`、`30 s`、`α=1000 s^-1`、`100 MHz` 和五个预定种子；网页展示用的 `2 MHz`
+电压片段不是正式触发链路。正式波形仿真仍保留配置要求的 `100 MHz`。
+
 ### 2.1 本地交互界面
 
 在项目根目录启动只监听本机的 Streamlit 界面：
@@ -57,7 +74,8 @@ he3sim qualify-acquisition --input <DAQ目录> --profile configs/acquisition_pro
 streamlit run src/he3sim/ui/app.py --server.address 127.0.0.1
 ```
 
-界面包含事件生成、连续波形、脉冲模式噪声和连续信号噪声四个页面。参数采用单一数值输入框，
+界面包含事件生成、连续波形和脉冲模式噪声三个页面。连续信号噪声分析不再提供本地交互页面；
+该研究功能的既有 CLI 与分析模块仍保留，供后续科研开发使用。参数采用单一数值输入框，
 既可键入，也可用右侧加减按钮微调；同一参数不再同时出现滑块和输入框。每个计算页把最近一次成功结果
 分别保存在当前浏览器会话中，切换页面不会清除已有指标和图表。刷新浏览器、关闭标签页或重启服务会
 开始新会话，不应把会话状态当作长期存档。
@@ -310,3 +328,35 @@ QC 状态为 `pass`、`fail`、`not_evaluable` 或 `unknown`。当前 profile �
 证据状态，其可信度继承输入参数。
 
 完整数学合同见 `docs/model_spec.md`，项目范围与阶段门禁见 `docs/PROJECT_SPEC.md`。
+
+## 10. 论文补充实验入口
+
+独立脚本 `scripts/run_paper_supplement_validation.py` 编排
+`analysis/paper_supplement_validation.py`，不修改现有 CLI 或界面。
+
+```powershell
+conda run -n signal_create python scripts/run_paper_supplement_validation.py --config configs/demo_correlated.yaml --output outputs/paper_supplement_validation
+```
+
+高率诊断保存裁剪前后及 ADC 对照指标；触发效率采用每个真值最多匹配一次的贪心关联，避免用原多对多
+窗口关联数冒充逐事件分辨率。它仍是窗口匹配诊断，不是脉冲因果归属的独立证据。
+门宽候选、开发/保留种子和通过门槛由实验协议固定，规范协议哈希与基础配置哈希写入结果。
+
+输出目录现包含完整协议、JSON、CSV、快速预览、`figures/` 内逐种子 PNG/SVG/PDF，以及 `reproduction/`
+内完整复现产物。两次完整执行的协议和数值文件逐字节一致；初次源强舍入中止历史保留于执行记录。
+
+独立审核入口 `scripts/audit_paper_supplement.py` 从落盘逐种子结果重新计算选择规则、判据和配对区间，
+核对全部 CSV 字段，并增加非空线性实现对照；它不重新挑门宽或改科学门槛。调用示例：
+
+```powershell
+conda run -n signal_create python scripts/audit_paper_supplement.py --reproduction outputs/paper_supplement_validation/reproduction
+conda run -n signal_create python scripts/plot_paper_supplement.py
+```
+
+审核输出 `independent_audit.json`、`base_config_snapshot.json`、`provenance_manifest.json` 分别记录独立核查、
+基础参数状态快照及活动源码/产物哈希。波形长数组不单独存档，可通过冻结配置与种子重建。
+绘图脚本只读数值结果，不重新生成或筛选实验数据；推荐其全部种子图用于论文审核。
+
+2026-08-26：全量测试 227 passed，独立核查 84 项通过。科学结论仍为：无全部判据达标率点、门宽改善未获支持。
+源模型无稳态预热；触发读取模拟样本，ADC 仅做量化诊断；软件裁剪不是已标定的硬件非线性。
+详见 `docs/PAPER_SUPPLEMENT_RESULTS.md`。当前为 `awaiting_human_review`，不代表作者验收通过。

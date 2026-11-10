@@ -451,6 +451,37 @@ def phase_b_method_agreement_figure(
     return figure
 
 
+def waveform_event_pairwise_figure(
+    condition_labels: Sequence[str],
+    relative_differences: npt.NDArray[np.float64],
+    methods: Sequence[str],
+) -> Figure:
+    """Compare waveform-level alpha estimates against paired event-time fits."""
+    figure, axis = _new_figure(
+        "波形级与事件级 α 的配对比较",
+        "同一 seed、真值事件和观察窗；仅改变观测链路",
+        (9.2, 5.5),
+    )
+    x_values = np.arange(len(condition_labels), dtype=np.float64)
+    width = 0.23
+    colors = [BLUE, ORANGE, GOLD]
+    for index, method in enumerate(methods):
+        axis.bar(
+            x_values + (index - 1) * width,
+            relative_differences[:, index] * 100.0,
+            width,
+            label=method,
+            color=colors[index],
+        )
+    axis.axhline(0.0, color=CHARCOAL, linewidth=0.8, label="与事件级一致")
+    axis.set_xticks(x_values, condition_labels)
+    axis.set_xlabel("波形观测工况")
+    axis.set_ylabel("相对事件级 α 的差异（%）")
+    axis.legend(frameon=False, ncols=2)
+    figure.tight_layout(rect=(0.0, 0.0, 1.0, 0.93))
+    return figure
+
+
 def phase_b_deadtime_bias_figure(
     rates_cps: npt.NDArray[np.float64],
     raw_ratios: npt.NDArray[np.float64],

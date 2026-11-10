@@ -5,7 +5,26 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .venv/
+venv/
 build/
 dist/
 outputs/
 ~$*.docx
+
+# MCNP inputs and samples (strictly excluded)
+*.i
+*.inp
+MCNP_input/
+mcnp_batch/
+mcnp_samples/
+mcnp_scan/
+
+# Temporary and render artifacts
+tmp/
+tmp_*/
+*.tmp
+*.log
+.review_r2_render/
+reviewer1_render/
+review_render_v4/
+tmp_review_r3_render/

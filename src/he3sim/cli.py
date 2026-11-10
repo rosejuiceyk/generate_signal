@@ -11,6 +11,13 @@ import yaml
 from pydantic import ValidationError
 
 from he3sim.analysis.counting_stats import validate_arrival_algorithms
+from he3sim.analysis.event_precision_pilot import (
+    DEFAULT_EXPECTED_EVENTS,
+    run_event_precision_pilot,
+    run_medium_scale_scan,
+    run_physics_consistent_pilot,
+    write_event_precision_pilot,
+)
 from he3sim.analysis.phase3_validation import (
     validate_phase3_physics,
     write_phase3_validation_report,
@@ -38,6 +45,10 @@ from he3sim.analysis.phase_c_validation import (
     write_phase_c_validation_report,
 )
 from he3sim.analysis.reports import write_arrival_validation_report
+from he3sim.analysis.waveform_alpha_validation import (
+    run_waveform_alpha_validation,
+    write_waveform_alpha_report,
+)
 from he3sim.analysis.waveform_plot import (
     DEFAULT_MAX_OVERVIEW_POINTS,
     plot_waveform_hdf5,
@@ -305,6 +316,183 @@ def validate_alpha_recovery_command(
     typer.echo(f"result: {'passed' if artifacts.metrics.passed else 'failed'}")
     if not artifacts.metrics.passed:
         raise typer.Exit(code=3)
+
+
+@app.command("validate-waveform-alpha")
+def validate_waveform_alpha_command(
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", "-c", help="Correlated-source YAML configuration."),
+    ],
+    output_directory: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Directory for waveform-alpha artifacts."),
+    ] = Path("outputs/waveform_alpha_validation"),
+    duration_s: Annotated[
+        float | None,
+        typer.Option(help="Optional fixed synthetic horizon override in seconds."),
+    ] = None,
+    bootstrap_replicates: Annotated[
+        int,
+        typer.Option(help="Time-block bootstrap replicates for each condition."),
+    ] = 80,
+    max_waveform_samples: Annotated[
+        int,
+        typer.Option(help="Explicit safety ceiling for streamed waveform samples."),
+    ] = 100_000_000,
+    true_rate_cps: Annotated[
+        float | None,
+        typer.Option(help="Shared true rate override for every G0--G3 arm."),
+    ] = None,
+    alpha_s_inv: Annotated[
+        float | None,
+        typer.Option(help="Shared prompt-alpha override in s^-1 for every arm."),
+    ] = None,
+    sample_rate_hz: Annotated[
+        float | None,
+        typer.Option(help="Optional shared waveform sampling-rate override in Hz."),
+    ] = None,
+    seed: Annotated[
+        int | None,
+        typer.Option(help="Shared random-seed override for the paired realization."),
+    ] = None,
+) -> None:
+    """Validate alpha recovery through render -> trigger -> dead-time observations."""
+    try:
+        config = load_config(config_path)
+        result, analyses = run_waveform_alpha_validation(
+            config,
+            duration_s=duration_s,
+            bootstrap_replicates=bootstrap_replicates,
+            max_waveform_samples=max_waveform_samples,
+            true_rate_cps=true_rate_cps,
+            alpha_s_inv=alpha_s_inv,
+            sample_rate_hz=sample_rate_hz,
+            seed=seed,
+        )
+        files = write_waveform_alpha_report(result, analyses, output_directory)
+    except (OSError, ValueError, RuntimeError, yaml.YAMLError, ValidationError) as exc:
+        typer.echo(f"Waveform-level alpha validation failed: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Waveform alpha validation JSON: {files['json']}")
+    typer.echo("figures: 5 PNG (parity, paired comparison, and G3 fit diagnostics)")
+    typer.echo(
+        "result: "
+        f"{'passed' if result.passed_reference_and_ideal else 'review required'} "
+        "(G0/G1 are the acceptance gate; G2/G3 are sensitivity results)"
+    )
+    if not result.passed_reference_and_ideal:
+        raise typer.Exit(code=3)
+
+
+@app.command("validate-event-precision-pilot")
+def validate_event_precision_pilot_command(
+    config_path: Annotated[Path, typer.Option("--config", "-c")],
+    output_directory: Annotated[Path, typer.Option("--output", "-o")] = Path(
+        "outputs/event_precision_pilot"
+    ),
+    expected_events: Annotated[int, typer.Option(help="Expected events per seed and scenario.")] = (
+        DEFAULT_EXPECTED_EVENTS
+    ),
+) -> None:
+    """Run the 12-condition event-time alpha-recovery precision pilot."""
+    try:
+        pilot = run_event_precision_pilot(load_config(config_path), expected_events=expected_events)
+        files = write_event_precision_pilot(pilot, output_directory)
+    except (OSError, ValueError, RuntimeError, yaml.YAMLError, ValidationError) as exc:
+        typer.echo(f"Event-precision pilot failed: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Event-precision pilot JSON: {files['json']}")
+    typer.echo(f"Event-precision pilot CSV: {files['csv']}")
+    typer.echo(f"runs: {len(pilot.points)}")
+
+
+@app.command("validate-event-precision-physics-pilot")
+def validate_event_precision_physics_pilot_command(
+    config_path: Annotated[Path, typer.Option("--config", "-c")],
+    experiment_config: Annotated[
+        Path, typer.Option("--experiment-config", "-e", help="Alpha-coupled pilot YAML.")
+    ] = Path("configs/event_precision_physics_consistent.yaml"),
+    output_directory: Annotated[Path, typer.Option("--output", "-o")] = Path(
+        "outputs/event_precision_physics_pilot"
+    ),
+) -> None:
+    """Run the k_eff-coupled, event-time-only precision pilot."""
+    try:
+        pilot = run_physics_consistent_pilot(load_config(config_path), experiment_config)
+        files = write_event_precision_pilot(pilot, output_directory)
+    except (OSError, KeyError, TypeError, ValueError, yaml.YAMLError, ValidationError) as exc:
+        typer.echo(f"Physics-consistent event pilot failed: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Physics-consistent pilot JSON: {files['json']}")
+    typer.echo(f"Physics-consistent pilot CSV: {files['csv']}")
+    typer.echo(f"runs: {len(pilot.points)}")
+
+
+@app.command("validate-event-precision-medium-scale")
+def validate_event_precision_medium_scale_command(
+    config_path: Annotated[Path, typer.Option("--config", "-c")],
+    experiment_config: Annotated[
+        Path, typer.Option("--experiment-config", "-e", help="Grouped k_eff scan YAML.")
+    ] = Path("configs/event_precision_medium_scale.yaml"),
+    output_directory: Annotated[Path, typer.Option("--output", "-o")] = Path(
+        "outputs/event_precision_medium_scale"
+    ),
+) -> None:
+    """Run the approved grouped event-time precision scan and stress point."""
+    try:
+        main, stress = run_medium_scale_scan(load_config(config_path), experiment_config)
+        main_files = write_event_precision_pilot(main, output_directory / "main_scan")
+        stress_files = write_event_precision_pilot(stress, output_directory / "stress_test")
+    except (
+        OSError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+        yaml.YAMLError,
+        ValidationError,
+    ) as exc:
+        typer.echo(f"Medium-scale event scan failed: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Main scan summary: {main_files['summary']}")
+    typer.echo(f"Main scan runs: {len(main.points)}")
+    typer.echo(f"Stress-test summary: {stress_files['summary']}")
+    typer.echo(f"Stress-test runs: {len(stress.points)}")
+
+
+@app.command("validate-event-precision-medium-scale-blind")
+def validate_event_precision_medium_scale_blind_command(
+    config_path: Annotated[Path, typer.Option("--config", "-c")],
+    experiment_config: Annotated[
+        Path, typer.Option("--experiment-config", "-e", help="Grouped k_eff scan YAML.")
+    ] = Path("configs/event_precision_medium_scale.yaml"),
+    output_directory: Annotated[Path, typer.Option("--output", "-o")] = Path(
+        "outputs/event_precision_medium_scale_blind"
+    ),
+) -> None:
+    """Repeat the grouped scan with pre-specified settings independent of alpha truth."""
+    try:
+        main, stress = run_medium_scale_scan(
+            load_config(config_path), experiment_config, analysis_mode="blind"
+        )
+        main_files = write_event_precision_pilot(main, output_directory / "main_scan")
+        stress_files = write_event_precision_pilot(stress, output_directory / "stress_test")
+    except (
+        OSError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+        yaml.YAMLError,
+        ValidationError,
+    ) as exc:
+        typer.echo(f"Blind medium-scale event scan failed: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Blind main scan summary: {main_files['summary']}")
+    typer.echo(f"Blind main scan runs: {len(main.points)}")
+    typer.echo(f"Blind stress-test summary: {stress_files['summary']}")
+    typer.echo(f"Blind stress-test runs: {len(stress.points)}")
 
 
 @app.command("simulate-waveform")

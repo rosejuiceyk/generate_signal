@@ -1,0 +1,24 @@
+# Medium-scale, physics-consistent event-level precision experiment.
+base_configuration: configs/demo_correlated.yaml
+parameter_status: synthetic_demo
+prompt_generation_time_s: 0.00015
+shared_controls:
+  true_rate_cps: [1000.0, 3000.0, 10000.0]
+  detection_efficiency: [0.15, 0.30, 0.50]
+  seeds: [101, 203, 307, 401, 503, 601, 701, 809]
+groups:
+  deep_subcritical:
+    k_eff: [0.25, 0.35, 0.45, 0.50]
+    expected_events: 120000
+  shallow_subcritical:
+    k_eff: [0.55, 0.60, 0.65, 0.70]
+    expected_events: 80000
+  near_critical:
+    k_eff: [0.75, 0.80, 0.85, 0.90]
+    expected_events: 50000
+stress_test:
+  k_eff: 0.93
+  expected_events: 100000
+  true_rate_cps: 3000.0
+  detection_efficiency: 0.30
+  seeds: [101, 203, 307, 401, 503, 601, 701, 809, 907, 1009, 1103, 1201, 1301, 1409, 1511, 1601]

@@ -354,6 +354,9 @@ def analyze_event_noise(
     bootstrap_blocks: int = 32,
     seed: int = 0,
     maximum_lag_s: float = 0.008,
+    rossi_bins: int = 80,
+    feynman_gate_widths_s: npt.ArrayLike | None = None,
+    psd_count_bin_s: float = 5.0e-5,
     alpha_bounds_per_s: tuple[float, float] = (100.0, 5_000.0),
 ) -> NoiseAnalysis:
     """Run all three estimators and a common time-block bootstrap."""
@@ -364,10 +367,21 @@ def analyze_event_noise(
         times,
         duration_s,
         maximum_lag_s=maximum_lag_s,
+        bins=rossi_bins,
         alpha_bounds_per_s=alpha_bounds_per_s,
     )
-    feynman = feynman_alpha(times, duration_s, alpha_bounds_per_s=alpha_bounds_per_s)
-    psd = psd_alpha(times, duration_s, alpha_bounds_per_s=alpha_bounds_per_s)
+    feynman = feynman_alpha(
+        times,
+        duration_s,
+        gate_widths_s=feynman_gate_widths_s,
+        alpha_bounds_per_s=alpha_bounds_per_s,
+    )
+    psd = psd_alpha(
+        times,
+        duration_s,
+        count_bin_s=psd_count_bin_s,
+        alpha_bounds_per_s=alpha_bounds_per_s,
+    )
     bootstrap: dict[MethodName, list[float]] = {
         "Rossi-alpha": [],
         "Feynman-alpha": [],
@@ -383,18 +397,29 @@ def analyze_event_noise(
                 sampled,
                 duration_s,
                 maximum_lag_s=maximum_lag_s,
+                bins=rossi_bins,
                 alpha_bounds_per_s=alpha_bounds_per_s,
             )
             bootstrap["Rossi-alpha"].append(curve.fit.alpha_per_s)
         except (ValueError, RuntimeError):
             pass
         try:
-            curve = feynman_alpha(sampled, duration_s, alpha_bounds_per_s=alpha_bounds_per_s)
+            curve = feynman_alpha(
+                sampled,
+                duration_s,
+                gate_widths_s=feynman_gate_widths_s,
+                alpha_bounds_per_s=alpha_bounds_per_s,
+            )
             bootstrap["Feynman-alpha"].append(curve.fit.alpha_per_s)
         except (ValueError, RuntimeError):
             pass
         try:
-            curve = psd_alpha(sampled, duration_s, alpha_bounds_per_s=alpha_bounds_per_s)
+            curve = psd_alpha(
+                sampled,
+                duration_s,
+                count_bin_s=psd_count_bin_s,
+                alpha_bounds_per_s=alpha_bounds_per_s,
+            )
             bootstrap["PSD"].append(curve.fit.alpha_per_s)
         except (ValueError, RuntimeError):
             pass

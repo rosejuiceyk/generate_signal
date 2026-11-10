@@ -189,6 +189,8 @@ def compute_vtm_waveform(
     if gates.ndim != 1 or gates.size < 8 or np.any(gates <= 0.0):
         raise ValueError("gate_widths_s must contain at least eight positive values")
     vtm_values = np.empty(gates.size, dtype=np.float64)
+    cum_signal = np.zeros(signal.size + 1, dtype=np.float64)
+    np.cumsum(signal, out=cum_signal[1:])
     for index, gate in enumerate(gates):
         gate_samples = max(1, int(np.floor(gate * sample_rate_hz)))
         gate_count = signal.size // gate_samples
@@ -197,12 +199,12 @@ def compute_vtm_waveform(
                 f"VTM gate width {gate:.3g}s gives only {gate_count} gates "
                 f"(need >=16); use shorter gate widths or a longer signal"
             )
-        trimmed = gate_count * gate_samples
-        segment = signal[:trimmed].reshape(gate_count, gate_samples)
-        gate_means = np.mean(segment, axis=1)
+        trimmed_len = gate_count * gate_samples
+        gate_sums = cum_signal[gate_samples:trimmed_len+1:gate_samples] - cum_signal[:trimmed_len:gate_samples]
+        gate_means = gate_sums / gate_samples
         variance = float(np.var(gate_means, ddof=1))
-        mean_val = float(np.mean(gate_means))
-        vtm_values[index] = variance / max(mean_val**2, 1.0e-20)
+        # VTM value is T * Var(m_T)
+        vtm_values[index] = gate * variance
     return gates, vtm_values
 
 
@@ -289,28 +291,29 @@ def fit_continuous_vtm(
     values_trunc = values[mask]
     lower_alpha, upper_alpha = alpha_bounds_per_s
     plateau = max(float(np.median(values_trunc[-max(3, values_trunc.size // 4) :])), 1.0e-12)
-    y0 = float(np.clip(plateau, 1.0e-15, 5e5))
+    c0 = float(np.min(values_trunc))
+    y0 = float(np.clip(plateau - c0, 1.0e-15, 5e5))
     alpha_guess = np.sqrt(lower_alpha * upper_alpha)
     scale = max(float(np.std(values_trunc)), plateau * 0.05, 1.0e-12)
 
     def residual(params: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        alpha, y_inf = np.exp(params)
+        alpha, y_inf, c_shot = np.exp(params)
         return np.asarray(
-            (y_inf * _f1(alpha * gates_trunc) - values_trunc) / scale,
+            (c_shot + y_inf * _f1(alpha * gates_trunc) - values_trunc) / scale,
             dtype=np.float64,
         )
 
     result = least_squares(
         residual,
-        np.log([alpha_guess, y0]),
+        np.log([alpha_guess, y0, max(c0, 1e-15)]),
         bounds=(
-            np.log([lower_alpha, 1.0e-15]),
-            np.log([upper_alpha, 1e6]),
+            np.log([lower_alpha, 1.0e-15, 1.0e-15]),
+            np.log([upper_alpha, 1e6, 1e6]),
         ),
         max_nfev=2_000,
     )
-    alpha, y_inf = np.exp(result.x)
-    fitted = y_inf * _f1(alpha * gates)
+    alpha, y_inf, c_shot = np.exp(result.x)
+    fitted = c_shot + y_inf * _f1(alpha * gates)
     alpha_std = float("nan")
     try:
         jac = np.asarray(result.jac, dtype=np.float64)
@@ -325,8 +328,8 @@ def fit_continuous_vtm(
         alpha_std_per_s=alpha_std,
         naive_alpha_std_per_s=alpha_std,
         amplitude=float(y_inf),
-        baseline=0.0,
-        r_squared=_r_squared(values_trunc, y_inf * _f1(alpha * gates_trunc)),
+        baseline=float(c_shot),
+        r_squared=_r_squared(values_trunc, c_shot + y_inf * _f1(alpha * gates_trunc)),
         bootstrap_alpha_per_s=np.empty(0, dtype=np.float64),
     )
     return ContinuousVTMCurve(gates, values, fitted, fit)

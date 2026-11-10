@@ -32,6 +32,7 @@
 | A | 纯瞬发相关事件、lineage 与静态验证图 | 已通过 | 已通过（2026-07-19） |
 | B | 脉冲模式噪声分析、三法 α 复原与死时间偏置 | 已通过 | 已通过（2026-07-20） |
 | C | 连续信号 ACF/VTM/去卷积/CCF 与可用边界 | 已通过 | 等待人工审核 |
+| 论文初稿 v1 | 正式正文、补充材料与引用/数值自审 | 写作构建 93 项检查、13 页视觉检查完成 | 等待作者审核；投稿前事项见第 16 节 |
 
 ## 3. 环境与通用约定
 
@@ -864,6 +865,68 @@ synthetic_demo 死时间的 `2 × 4` 网格中，Hazama 一阶修正使至少 75
 | 结论 | 通过 |
 | 问题与备注 | Phase HIL 被跳过；Phase C 已授权 |
 
+### 10.7a 波形级 α 闭环方法验证（历史说明；已由 V6 冻结评估取代）
+
+> **当前口径（2026-09-03）**：使用差分触发的 V6 冻结评估已完成，产物为
+> `outputs/manuscript_v6_differential_local/`。五种子、四工况、三估计器的 60 项结果中，`48/60`
+> 不超过 5%，均值为 `3.219%`；但所有种子、工况和估计器均不超过 5% 的严格门槛未达成。
+> 本节其余文字保留为旧 CLI 的历史操作说明，不能用于声称门槛已通过。V6 为纯模拟验证，未使用实测或独立输运对照。
+
+此前 Phase B 只以相关事件的理想时间序列验证 α 复原，不能直接证明“生成后的电压波形”可用于
+脉冲模式噪声分析。为论文的软件方法论证新增以下闭环：固定 seed 生成同一组相关中子真值（G0），
+再依次经过无噪声阈值触发（G1）、含噪声阈值触发（G2）和含噪声加 `4 us` 非延长型死时间（G3）。
+每组均用 Rossi-α、Feynman-α、PSD 反演设定的瞬发衰减常数 α。G0 与 G1–G3 强制共用同一 seed、
+同一真值事件表、同一观察时长和同一估计器参数；报告的配对柱状图以 G0 为分母，只显示观测链路带来的差异。
+
+```powershell
+conda activate signal_create
+he3sim validate-waveform-alpha -c configs/demo_correlated.yaml -o outputs/waveform_alpha_validation
+```
+
+默认读取配置中的固定观察窗；若需先做小规模实现检查，可传入 `--duration-s`，同时按采样率设置
+`--max-waveform-samples`。正式论文结果应保留 JSON 的 seed、真值事件数、触发效率、误触发率、三法拟合参数
+和五张 PNG。自动门禁只评价 G0/G1 是否在 ±5% 内；G2/G3 的偏差应如实报告为灵敏度结果，不应强行宣称通过。
+整个验证使用 `synthetic_demo` 参数，只支持软件闭环可行性，不构成 He-3 探测器、前放或反应堆参数的实验验证。
+
+如需与网页 Phase B 的某次运行保持相同工况，可把网页显示的率、时长、α 和随机种子原样传入；这些值会同时
+应用于 G0–G3，而不是分别生成样本：
+
+```powershell
+he3sim validate-waveform-alpha -c configs/demo_correlated.yaml -o outputs/waveform_vs_event `
+  --true-rate-cps 3000 --duration-s 10 --alpha-s-inv 1000 --seed 42 `
+  --max-waveform-samples 1000000001
+```
+
+网页的 `2 MHz` 电压只用于快速展示，不能替代正式波形触发链路要求的 `100 MHz` 采样率；因此该命令保留
+配置中的正式采样率，样本工况相同仅指中子真值与统计条件相同。
+
+### 10.7b 事件级多工况 α 精度预实验
+
+该预实验不经过波形、触发或死时间，只验证相关中子事件时间生成与三种 α 估计器的闭环一致性。它包含
+12 个代表性 `(α, 计数率, k_eff, ε)` 工况，每工况使用 4 个固定 seed；每次运行按期望 30,000 事件设置
+观察时长，避免不同计数率具有不公平样本量。
+
+```powershell
+he3sim validate-event-precision-pilot -c configs/demo_correlated.yaml -o outputs/event_precision_pilot
+```
+
+输出 `event_precision_runs.csv` 和 `event_precision_pilot.json`。筛查阶段通过跨 seed 重复性而非 bootstrap
+评估误差；只有中心与边界工况的表现被确认后，才进入完整 108 工况扫描和重点工况 bootstrap 复核。
+
+预实验中三法平均绝对误差最低的是 `k_high`：`k_eff=0.85`、`α=1000 s^-1`、率 `3000 cps`、
+`ε=0.30`，三法平均约 3.0%。据此固定隐含瞬发中子代时间 `Λ=0.15 ms`；下一轮物理一致性工况见
+`configs/event_precision_physics_consistent.yaml`，并按 `α=(1-k_eff)/Λ` 自动推导 α。
+
+物理一致性预实验命令为：
+
+```powershell
+he3sim validate-event-precision-physics-pilot -c configs/demo_correlated.yaml `
+  -e configs/event_precision_physics_consistent.yaml -o outputs/event_precision_physics_pilot
+```
+
+首轮 16 次运行显示：低 `k_eff` 同步增大 α 后的三法平均绝对误差为 5.24%，明显优于此前独立固定 α 的
+低 `k_eff` 工况；`k_eff=0.70` 仍为 8.30%，因此该结果是下一轮加密扫描的依据，不是整体验收通过声明。
+
 ### 10.8 Phase C 连续信号噪声分析与人工审核
 
 Phase C 对连续电压波形直接计算自协方差 ACF(θ)、方差均值比 VTM(T)、Wiener
@@ -939,7 +1002,8 @@ streamlit run src/he3sim/ui/app.py --server.address 127.0.0.1
 - [ ] 软件目录自动创建 `outputs/`，启动失败时可从 `logs/launcher.log` 查看原因；
 - [ ] 复制整个文件夹后仍可运行，且没有单独复制 EXE 或删除 `_internal/`。
 
-本机自动验收已覆盖打包 EXE 启动、页面加载、一次事件生成、四页导航、重复启动和退出清理。目标电脑
+本机自动验收已覆盖打包 EXE 启动、页面加载、一次事件生成、三页导航、重复启动和退出清理。连续信号
+噪声分析已从交互界面移除，但其既有 CLI 与分析模块仍保留。目标电脑
 无 Python 环境的实际复制审核仍需用户完成；当前状态为 `awaiting_human_review`。
 
 ## 12. 如何提交人工审核结论
@@ -977,6 +1041,8 @@ Phase X 人工审核不通过。问题如下：……。只修复这些问题并
 
 ## 14. 文档变更记录
 
+论文补充实验的运行与审核说明见本文第 15 节；2026-08-26 已完成执行、复现和自审，等待作者审核。
+
 | 日期 | 版本 | 内容 |
 |---|---|---|
 | 2026-07-13 | 1.0 | 补充 Phase 0、Phase 1、Phase 2 操作说明和追溯性人工审核清单 |
@@ -1002,3 +1068,91 @@ Phase X 人工审核不通过。问题如下：……。只修复这些问题并
 | 2026-07-23 | 3.6 | 恢复本机研究界面说明，增加单一参数输入、历史页修复与跨页结果保留审核清单 |
 | 2026-07-24 | 3.7 | 移除结果区重复提示和历史结果浏览入口，保留四个计算页及其跨页会话状态 |
 | 2026-07-24 | 3.8 | 新增 Win11 x64 免安装便携版、无控制台启动器、构建脚本与跨机器人工审核清单 |
+
+## 15. 论文补充实验运行与人工审核
+
+本实验覆盖高计数率脉冲重叠/失真/裁剪诊断，以及开发集选门宽、独立保留集验证的 Feynman-α 实验。
+冻结工况和判据见 `docs/PAPER_SUPPLEMENT_EXPERIMENT_PLAN.md`。
+
+在 `code_doc` 工作目录中执行：
+
+```powershell
+conda run -n signal_create python -m pytest -q tests/unit/test_paper_supplement_validation.py
+conda run -n signal_create python scripts/run_paper_supplement_validation.py --config configs/demo_correlated.yaml --output outputs/paper_supplement_validation
+```
+
+预期成功运行产生协议、结果 JSON、两个 CSV 和两张 PNG；退出码为 0 只表示执行完成，不表示科学判据通过。
+重点核对结果字段 `maximum_usable_rate_cps`、`improvement_claim_supported` 和
+`selected_meets_accuracy_tolerance`。无可用率或改善判据为 false 均应原样记录，不据此调整门槛。
+
+当前记录（2026-08-26）：两项正式实验及完整复现均完成，协议、结果 JSON 和两份 CSV 逐字节一致。
+全量测试 227 passed，专项测试 20 passed，84 项独立核查通过；失败科学判据保持原样，不当作运行错误重复调参。
+
+结果：高率网格没有率点通过全部判据；门宽保留集中位误差由基线 7.36% 变为 20.17%，改善判据与 5% 精度门槛均未通过。
+这些负结果足以用于当前论文的适用边界讨论，不要求为开始写作而强行获得通过。
+
+优先阅读 `docs/PAPER_SUPPLEMENT_RESULTS.md` 及外层 `paper/05_supplement_review.md`。
+推荐图位于 `outputs/paper_supplement_validation/figures/`，包含全部种子及配对区间；原始指标在 JSON/CSV。
+保存了配置快照、源代码/产物哈希、环境信息、完整复现目录、JUnit 测试记录及统计/图表自审记录。
+
+只复核结果与重新出图、不重跑长波形的命令：
+
+```powershell
+conda run -n signal_create python scripts/audit_paper_supplement.py --reproduction outputs/paper_supplement_validation/reproduction
+conda run -n signal_create python scripts/plot_paper_supplement.py
+```
+
+如需再次执行完整实验，请为 `--output` 指定新目录，避免覆盖待审核产物。
+模型为源开启而非已预热稳态；触发读取模拟波形而非 ADC 重建样本。真实空间电荷、气体增益压缩和前放恢复仍未模拟。
+
+人工审核清单：
+
+- [ ] 确认运行完成且全部率点、seed 均保留；
+- [ ] 确认开发 seed 与保留 seed 不重叠，保留集仅比较基线与冻结方案；
+- [ ] 结合逐 seed 指标检查失效范围，不仅查看聚合图；
+- [ ] 确认软件裁剪和 ADC 非线性未被写为真实探测器非线性；
+- [ ] 确认局限包含短观察时长、有限种子和单一动力学工况。
+- [ ] 确认源开启瞬态、模拟波形触发层级及低率空参考窗的说明准确；
+- [ ] 同意按负结果/适用边界继续写作，不把门宽调整写为已证实改善。
+
+| 审核项 | 当前状态 |
+|---|---|
+| 专项与全量工程检查 | 通过（专项 20、全量 227；专项 Ruff、mypy） |
+| 正式实验 | 全部完成；完整复现数值一致；84 项独立核查通过 |
+| 科学判据 | 高率全部条件联合判据、门宽改善和5%精度均未通过；负结果保留 |
+| 正文准备 | 实验层面可继续写作；引用核验另行在定稿前完成 |
+| 人工审核人、时间、结论 | 待用户填写 |
+
+## 16. 正式论文初稿 v1 人工审核
+
+2026-08-26：作者明确要求开始正式写作。当前稿件位于项目外层 `paper/`，不是内层仓库的 `outputs/`；实验原始产物保持不变。
+
+建议阅读顺序：`paper/06_manuscript_v1.docx` 的摘要、第 4 节结果、第 5 节讨论，然后阅读方法和 `paper/07_supplementary_material.md`。自审、21 条引用来源和待确认信息在 `paper/08_manuscript_review.md`；旧 `04_manuscript_draft.md` 已标为历史稿。
+
+预期产物：13 页 Word，中英文摘要、6 节正文、10 个可编辑公式、4 张表、2 张已有实验图、21 条正式参考文献；Markdown 是对应可修改源稿。`paper/render_final/` 保存当前分页 PNG 和 PDF 预览。
+
+在项目外层重新构建（会更新 Word 与机器检查 JSON，修改后需重新渲染检查）：
+
+```powershell
+& 'C:\Users\rosejuice\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' 'C:\Users\rosejuice\Desktop\he-3-signal\paper\build_manuscript.py'
+```
+
+本轮构建 93 项命名检查通过，并重算扩展扫描的 108 个工况汇总；最终 13 页均已检查。渲染与检查完整命令见外层自审文件。不改模拟生产代码，所以未重跑物理实验或全量测试；此前 227 passed 不作为本轮新验收。
+
+人工审核清单：
+
+- [ ] 确认题目与核心贡献是预设模型范围内的软件一致性和条件性 α 恢复；
+- [ ] 确认负结果、源开启时长差异、ADC 旁支及匹配定义未被弱化；
+- [ ] 确认三工况基准不外推到全参数域，扩展扫描结果及历史模式缺口在 S8 公开；
+- [ ] 投稿前补足 Phase B 实际重采样配置溯源，或在新目录复现后按新记录修订；
+- [ ] 核对当前 21 条引用与论断，并确认作者、单位、基金和目标期刊信息；
+- [ ] 确认真实设备与反应堆验证仍属于后续研究，不升级合成参数状态。
+
+| 审核项 | 当前状态 |
+|---|---|
+| 正文及文档构建 | 已完成；数值、引用顺序与分页检查完成 |
+| 证据强度 | 保持纯软件/合成模型边界，失败结果原样保留 |
+| 历史记录与投稿信息 | 尚待作者确认，详见外层 `08_manuscript_review.md` |
+| 人工审核人、时间、结论 | 待用户填写；状态 `awaiting_human_review` |
+
+本轮仅更新写作审核手册；`SOFTWARE_USER_MANUAL.md` 无需新增软件功能说明。

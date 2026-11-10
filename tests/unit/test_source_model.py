@@ -22,16 +22,20 @@ def demo_raw() -> dict[str, object]:
 def test_prompt_source_model_maps_inputs_to_expected_rates() -> None:
     config = load_config(PROJECT_ROOT / "configs" / "demo_minimal.yaml")
     model = PromptSourceModel.from_config(config.source_model)
+    expected_nu_bar = 2.414097  # Zucker & Holden U-235 thermal-fission PMF.
+    expected_lambda_t = 1_250.0
+    expected_lambda_f = 0.2 * expected_lambda_t / expected_nu_bar
 
     assert model.k_eff == pytest.approx(0.2)
     assert model.reactivity == pytest.approx(-4.0)
-    assert model.lambda_t_per_s == pytest.approx(1_250.0)
-    assert model.lambda_f_per_s == pytest.approx(100.0)
+    assert model.nu_bar == pytest.approx(expected_nu_bar)
+    assert model.lambda_t_per_s == pytest.approx(expected_lambda_t)
+    assert model.lambda_f_per_s == pytest.approx(expected_lambda_f)
     assert model.lambda_d_per_s == pytest.approx(125.0)
-    assert model.lambda_c_per_s == pytest.approx(1_025.0)
+    assert model.lambda_c_per_s == pytest.approx(expected_lambda_t - expected_lambda_f - 125.0)
     assert model.mean_reaction_time_s == pytest.approx(1.0 / 1_250.0)
     assert model.generation_time_s == pytest.approx(1.0 / 250.0)
-    assert model.diven_factor == pytest.approx(0.64)
+    assert model.diven_factor == pytest.approx(0.7960511331)
     assert model.expected_detected_rate_cps == pytest.approx(1_000.0)
 
 
